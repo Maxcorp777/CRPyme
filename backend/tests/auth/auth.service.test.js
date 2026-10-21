@@ -1,29 +1,62 @@
-﻿require('dotenv').config();
+process.env.JWT_SECRET = 'secreto-de-pruebas';
 const bcrypt = require('bcrypt');
-jest.mock('../../models', () => ({ Usuario: { findOne: jest.fn() }, Rol: {} }));
 const { Usuario } = require('../../models');
 const authService = require('../../src/modules/auth/auth.service');
 
+jest.mock('../../models', () => ({
+  Usuario: {
+    findOne: jest.fn(),
+  },
+  Rol: {},
+}));
+
 describe('authService.login', () => {
-  it('rechaza un correo que no existe', async () => {
-    Usuario.findOne.mockResolvedValueOnce(null);
-    await expect(authService.login('no-existe@x.com', 'cualquiera'))
-      .rejects.toMatchObject({ code: 'CREDENCIALES_INVALIDAS' });
+  afterEach(() => {
+    jest.clearAllMocks();
   });
 
-  it('genera un token cuando la contraseña es correcta', async () => {
-    const hash = await bcrypt.hash('Admin123', 10);
-    const usuarioMock = {
+  test('rechaza si el usuario no existe', async () => {
+    Usuario.findOne.mockResolvedValue(null);
+
+    await expect(
+      authService.login('no-existe@crm.local', 'cualquiera')
+    ).rejects.toMatchObject({ code: 'CREDENCIALES_INVALIDAS' });
+  });
+
+  test('rechaza si la contraseña no coincide', async () => {
+    const usuarioFalso = {
       id: 1,
-      nombre: 'Administrador Inicial',
-      passwordHash: hash,
+      nombre: 'Admin',
+      activo: true,
+      Rol: { nombre: 'administrador' },
+      passwordHash: await bcrypt.hash('claveCorrecta', 10),
       intentosFallidos: 0,
       bloqueadoHasta: null,
-      Rol: { nombre: 'administrador' },
       update: jest.fn(),
     };
-    Usuario.findOne.mockResolvedValueOnce(usuarioMock);
-    const resultado = await authService.login('a@a.com', 'Admin123');
-    expect(resultado.token).toBeDefined();
+    Usuario.findOne.mockResolvedValue(usuarioFalso);
+
+    await expect(
+      authService.login('admin@crm.local', 'claveIncorrecta')
+    ).rejects.toMatchObject({ code: 'CREDENCIALES_INVALIDAS' });
+  });
+
+  test('devuelve token y usuario si las credenciales son correctas', async () => {
+    const usuarioFalso = {
+      id: 1,
+      nombre: 'Admin',
+      activo: true,
+      Rol: { nombre: 'administrador' },
+      passwordHash: await bcrypt.hash('claveCorrecta', 10),
+      intentosFallidos: 0,
+      bloqueadoHasta: null,
+      update: jest.fn(),
+    };
+    Usuario.findOne.mockResolvedValue(usuarioFalso);
+
+    const resultado = await authService.login('admin@crm.local', 'claveCorrecta');
+
+    expect(resultado).toHaveProperty('token');
+    expect(resultado.usuario).toEqual({ id: 1, nombre: 'Admin', rol: 'administrador' });
   });
 });
